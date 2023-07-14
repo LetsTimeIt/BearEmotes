@@ -42,7 +42,7 @@ jobs:
       - name: Process static images
         run: |
           cd .releases/${{steps.init.outputs.addon_name}}/SourceFiles/Static
-          find . -type f -name "*.png" -exec sh -c 'convert $1 -resize 32x32 -orient BottomLeft ../../Emotes/${1%.png}.tga' _ {} \;
+          find . -type f -name "*.png" -exec sh -c 'convert $1 -resize 32x32 -auto-orient ../../Emotes/${1%.png}.tga' _ {} \;
       - name: Compile master list
         run: |
           sh scripts/compile-master-table.sh .releases/${{steps.init.outputs.addon_name}}/Emotes > .releases/${{steps.init.outputs.addon_name}}/Emotes.lua
