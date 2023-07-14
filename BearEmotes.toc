@@ -1,0 +1,16 @@
+## Interface: 10000
+## Title: |TInterface\Addons\BearEmotes\Emotes\beargigachad:0|tBear Emotes|TInterface\Addons\BearEmotes\Emotes\bearlaugh:0|t
+## Author: Xepheris - Twisting Nether (EU)
+## Notes: Adds Bear emotes to your chat. Built on top of TwitchEmotes
+## Version: v2
+## SavedVariables: BearEmoticons_Settings
+## OptionalDeps: LibStub, LibUIDropDownMenu
+
+Libs\load_libs.xml
+Emotes.lua
+DropdownItems.lua
+BearEmotesAnimator.lua
+BearEmotes.lua
+BearEmoteStatistics.lua
+UI\BearEmotes.xml
+UI\BearEmoteStats.xml

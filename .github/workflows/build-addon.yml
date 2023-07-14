@@ -1,0 +1,62 @@
+---
+name: "Build addon"
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  build_addon:
+    runs-on: "ubuntu-latest"
+    env:
+      JEST_VERBOSE: ${{ secrets.JEST_VERBOSE }}
+
+    steps:
+      - name: "Install dependencies"
+        run: |
+          apt update && apt install -y imagemagick rsync
+      - name: "Check out code"
+        uses: "actions/checkout@v2"
+      - name: Get the version
+        id: get_version
+        run: |
+          TAG=${{ inputs.version }}
+          echo ::set-output name=VERSION::${TAG}
+          echo ::set-output name=VERSION_NO_V::${TAG#v}
+      - name: Get name of addon
+        id: init
+        run: |
+          addon_name=$(ls *.toc)
+          addon_name=$(basename $addon_name .toc)
+          tag_name=${addon_name}-${{steps.get_version.outputs.VERSION}}
+          echo "::set-output name=addon_name::${addon_name}"
+          echo "::set-output name=tag_name::${tag_name}"
+      - name: Make folder for zips
+        run: |
+          mkdir -p .releases/${{steps.init.outputs.addon_name}}
+          rsync -r --exclude '.*' . .releases/${{steps.init.outputs.addon_name}}
+      - name: Process images
+        run: |
+          cd .releases/${{steps.init.outputs.addon_name}}
+          rm -rf $(cat ../../.releaseignore)
+      - name: Clear all unnecessary files
+        run: |
+          cd .releases/${{steps.init.outputs.addon_name}}
+          rm -rf $(cat ../../.releaseignore)
+      - name: Change TOC version
+        run: |
+          cd .releases/${{steps.init.outputs.addon_name}}
+          sed -i 's/## Version: .*/## Version: ${{steps.get_version.outputs.VERSION_NO_V}}/g' ${{steps.init.outputs.addon_name}}.toc
+      - name: Create retail zip
+        run: |
+          cd .releases
+          zip -9 -r ${{steps.get_version.outputs.VERSION}}.zip ${{steps.init.outputs.addon_name}}
+          cd ..
+      - name: Archive add-on
+        uses: actions/upload-artifact@v3
+        with:
+          name: addon-zip
+          path: .releases/${{steps.get_version.outputs.VERSION}}.zip
