@@ -6,6 +6,6 @@ on:
 
 jobs:
   build_addon:
-    uses: ./github/workflows/build-addon.yml
+    uses: ./.github/workflows/build-addon.yml
     with:
       version: ${{ github.sha }}
