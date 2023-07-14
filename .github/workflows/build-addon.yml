@@ -38,10 +38,15 @@ jobs:
         run: |
           mkdir -p .releases/${{steps.init.outputs.addon_name}}
           rsync -r --exclude '.*' . .releases/${{steps.init.outputs.addon_name}}
-      - name: Process images
+          mkdir -p .releases/${{steps.init.outputs.addon_name}}/Emotes
+      - name: Process static images
         run: |
-          cd .releases/${{steps.init.outputs.addon_name}}
-          rm -rf $(cat ../../.releaseignore)
+          cd .releases/${{steps.init.outputs.addon_name}}/SourceFiles/Static
+          find . -type f -name "*.png" -exec sh -c 'convert $1 -resize 32x32 ../../Emotes/${1%.png}.tga' _ {} \;
+      - name: Compile master list
+        run: |
+          sh scripts/compile-master-table.sh .releases/${{steps.init.outputs.addon_name}}/Emotes > .releases/${{steps.init.outputs.addon_name}}/Emotes.lua
+          cat .releases/${{steps.init.outputs.addon_name}}/Emotes.lua
       - name: Clear all unnecessary files
         run: |
           cd .releases/${{steps.init.outputs.addon_name}}
@@ -53,10 +58,10 @@ jobs:
       - name: Create retail zip
         run: |
           cd .releases
-          zip -9 -r ${{steps.get_version.outputs.VERSION}}.zip ${{steps.init.outputs.addon_name}}
+          zip -9 -r ${{steps.init.outputs.tag_name}}.zip ${{steps.init.outputs.addon_name}}
           cd ..
       - name: Archive add-on
         uses: actions/upload-artifact@v3
         with:
           name: addon-zip
-          path: .releases/${{steps.get_version.outputs.VERSION}}.zip
+          path: .releases/${{steps.init.outputs.tag_name}}.zip
