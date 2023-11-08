@@ -1,0 +1,77 @@
+---
+name: "Build addon"
+
+on:
+  workflow_call:
+    inputs:
+      releaseType:
+        required: false
+        type: string
+        default: "beta"
+      artifactName:
+        required: true
+        type: string
+
+jobs:
+  build_addon:
+    runs-on: "ubuntu-latest"
+    env:
+      JEST_VERBOSE: ${{ secrets.JEST_VERBOSE }}
+
+    steps:
+      - name: "Install dependencies"
+        run: |
+          sudo apt-get update && sudo apt-get install -y curl jq
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: {{ inputs.artifactName }}
+          path: /tmp/addon.zip
+      - name: Upload addon to curseforge
+        run: |
+          curl -F 'file=@/tmp/addon.zip' -F 'metadata={"changelog":"${{ inputs.releaseNotes }}","gameVersions":[${{ inputs.gameVersion }}],"releaseType":"${{ inputs.releaseType }}",}'
+      - name: Get the version
+        id: get_version
+        run: |
+          TAG=${{ inputs.version }}
+          echo ::set-output name=VERSION::${TAG}
+          echo ::set-output name=VERSION_NO_V::${TAG#v}
+      - name: Get name of addon
+        id: init
+        run: |
+          addon_name=$(ls *.toc)
+          addon_name=$(basename $addon_name .toc)
+          tag_name=${addon_name}-${{steps.get_version.outputs.VERSION}}
+          echo "::set-output name=addon_name::${addon_name}"
+          echo "::set-output name=tag_name::${tag_name}"
+      - name: Make folder for zips
+        run: |
+          mkdir -p .releases/${{steps.init.outputs.addon_name}}
+          rsync -r --exclude '.*' . .releases/${{steps.init.outputs.addon_name}}
+          mkdir -p .releases/${{steps.init.outputs.addon_name}}/Emotes
+      - name: Process static images
+        run: |
+          cd .releases/${{steps.init.outputs.addon_name}}/SourceFiles/Static
+          find . -type f -name "*.png" -exec sh -c 'convert $1 -resize 32x32 -auto-orient ../../Emotes/${1%.png}.tga' _ {} \;
+      - name: Compile master list
+        run: |
+          sh scripts/compile-master-table.sh .releases/${{steps.init.outputs.addon_name}}/Emotes > .releases/${{steps.init.outputs.addon_name}}/Emotes.lua
+          cat .releases/${{steps.init.outputs.addon_name}}/Emotes.lua
+      - name: Clear all unnecessary files
+        run: |
+          cd .releases/${{steps.init.outputs.addon_name}}
+          rm -rf $(cat ../../.releaseignore)
+      - name: Change TOC version
+        run: |
+          cd .releases/${{steps.init.outputs.addon_name}}
+          sed -i 's/## Version: .*/## Version: ${{steps.get_version.outputs.VERSION_NO_V}}/g' ${{steps.init.outputs.addon_name}}.toc
+      - name: Create retail zip
+        run: |
+          cd .releases
+          zip -9 -r ${{steps.init.outputs.tag_name}}.zip ${{steps.init.outputs.addon_name}}
+          cd ..
+      - name: Archive add-on
+        uses: actions/upload-artifact@v3
+        with:
+          name: addon-zip
+          path: .releases/${{steps.init.outputs.tag_name}}.zip
