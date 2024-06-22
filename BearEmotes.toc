@@ -1,4 +1,4 @@
-## Interface: 100200
+## Interface: 100207
 ## Title: |TInterface\Addons\BearEmotes\Emotes\BearGigaChad:0|tBear Emotes|TInterface\Addons\BearEmotes\Emotes\BearLaugh:0|t
 ## Author: Mandl
 ## Notes: Adds Bear emotes to your chat. Built on top of TwitchEmotes
