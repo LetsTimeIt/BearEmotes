@@ -75,6 +75,16 @@
           </Anchors>
         </FontString>
 
+        <FontString name="$parentSearchBoxLabel" text="Search:" inherits="GameFontHighlightSmall" nonSpaceWrap="true" maxLines="3" justifyh="LEFT" justifyv="TOP">
+          <Anchors>
+            <Anchor point="CENTER" relativeTo="$parent" relativePoint="TOPLEFT">
+              <Offset>
+                <AbsDimension x="25" y="-180"/>
+              </Offset>
+            </Anchor>
+          </Anchors>
+        </FontString>
+
         <FontString name="$parentSeenListTitle" text="Seen" inherits="GameFontNormal" justifyh="LEFT" justifyv="TOP">
           <Anchors>
             <Anchor point="TOPLEFT">

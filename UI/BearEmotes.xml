@@ -88,7 +88,13 @@ Revert PowaBarSliderTemplate to inherit from OptionsSliderTemplate if it's fixed
     <Scripts>
       <OnLoad>
         self.name = "BearEmotes";
-        InterfaceOptions_AddCategory(self);
+        if SettingsPanel then
+          self:SetParent(SettingsPanel);
+          local category = Settings.RegisterCanvasLayoutCategory(self, self.name)
+          Settings.RegisterAddOnCategory(category)
+        else
+          InterfaceOptions_AddCategory(self);
+        end
         
         self:RegisterEvent("ADDON_LOADED");
         self:SetScript("OnEvent",BearEmoticons_OnEvent);
@@ -532,7 +538,8 @@ Revert PowaBarSliderTemplate to inherit from OptionsSliderTemplate if it's fixed
         </Anchors>
         <Scripts>
           <OnClick>
-          HideUIPanel(InterfaceOptionsFrame);
+          if InterfaceOptionsFrame then HideUIPanel(InterfaceOptionsFrame); end
+          if SettingsPanel then HideUIPanel(SettingsPanel); end
           HideUIPanel(GameMenuFrame);
           BearStatsScreen_OnLoad();
           </OnClick>
