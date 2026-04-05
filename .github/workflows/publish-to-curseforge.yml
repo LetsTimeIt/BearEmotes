@@ -23,7 +23,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y curl jq
       - name: Download artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v8
         with:
           name: {{ inputs.artifactName }}
           path: /tmp/addon.zip
@@ -71,7 +71,7 @@ jobs:
           zip -9 -r ${{steps.init.outputs.tag_name}}.zip ${{steps.init.outputs.addon_name}}
           cd ..
       - name: Archive add-on
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: addon-zip
           path: .releases/${{steps.init.outputs.tag_name}}.zip
