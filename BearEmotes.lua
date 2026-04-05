@@ -1,6 +1,14 @@
 local LDB = LibStub("LibDataBroker-1.1")
 local LDBIcon = LibStub("LibDBIcon-1.0")
 local LibDD = LibStub:GetLibrary("LibUIDropDownMenu-4.0")
+local isMidnight = (select(4, GetBuildInfo()) >= 120000)
+local InChatMessagingLockdown = (C_ChatInfo and C_ChatInfo.InChatMessagingLockdown) or function()
+    return false
+end
+local issecretvalue = issecretvalue or function()
+    return false
+end
+local addonName, addonTable = ...
 
 BearEmoticons_Settings = {
     ["CHAT_MSG_COMMUNITIES_CHANNEL"] = true, -- 1
@@ -61,12 +69,20 @@ local origsettings = {
 	["ENABLE_CLICKABLEEMOTES"] = true,
     ["ENABLE_AUTOCOMPLETE"] = true,
     ["ENABLE_ANIMATEDEMOTES"] = true,
+    ["AUTOCOMPLETE_CONFIRM_WITH_TAB"] = false,
     ["FAVEMOTES"] = {
         true, true, true, true, true, true, true, true, true, true, true, true,
         true, true, true, true, true, true, true, true, true, true, true, true,
         true, true, true
     }
 };
+
+local accept_stat_updates = false
+local iconregistered = false
+local autocompleteInited = false
+local Broker_BearEmotes
+local BearEmotes_N_CHATFRAMES = 0
+local _G = getfenv(0)
 
 local function BearEmotes_MinimapButton_OnClick(btn)
     if IsShiftKeyDown() then
@@ -245,7 +261,7 @@ function BearEmoticons_LoadMiniMapDropdown(self, level, menuList)
 end
 
 function BearEmoticons_Dropdown_OnClick(self, arg1, arg2, arg3)
-    if (ACTIVE_CHAT_EDIT_BOX ~= nil) then
+    if (ACTIVE_CHAT_EDIT_BOX ~= nil) and not InChatMessagingLockdown() then
         ACTIVE_CHAT_EDIT_BOX:Insert(self.value);
     end
 end
@@ -260,13 +276,39 @@ function SendMail(recipient, subject, msg, ...)
     end
 end
 
-local scm = SendChatMessage;
-function SendChatMessage(msg, ...)
-    if msg ~= nil then
-        if BearEmoticons_Settings["ENABLE_CLICKABLEEMOTES"] then
-            msg = BearEmotes_Message_StripEscapes(msg) 
+if isMidnight then
+    EventRegistry:RegisterCallback(
+        "ChatFrame.OnEditBoxPreSendText",
+        function(self, editBox)
+            if not BearEmoticons_Settings["ENABLE_CLICKABLEEMOTES"] then
+                return
+            end
+
+            local msg = editBox:GetText()
+            if not msg or issecretvalue(msg) or msg:match("^%s*$") then
+                return
+            end
+
+            local newMsg = BearEmotes_Message_StripEscapes(msg)
+            if newMsg ~= msg then
+                if InChatMessagingLockdown() then
+                    print("Can't send emotes during combat - Midnight messaging restrictions in effect.")
+                    return
+                end
+                editBox:SetText(newMsg)
+            end
+        end,
+        addonTable
+    )
+else
+    local scm = C_ChatInfo.SendChatMessage;
+    function C_ChatInfo.SendChatMessage(msg, ...)
+        if msg ~= nil then
+            if BearEmoticons_Settings["ENABLE_CLICKABLEEMOTES"] then
+                msg = BearEmotes_Message_StripEscapes(msg)
+            end
+            scm(msg, ...);
         end
-        scm(msg, ...);
     end
 end
 
@@ -334,11 +376,6 @@ function BearEmoticons_MessageFilter(self, event, message, ...)
     return false, message, ...
 end
 
-local accept_stat_updates = false;
-local iconregistered = false
-local autocompleteInited = false
-local Broker_BearEmotes
-local _G = getfenv(0)
 function BearEmoticons_OnEvent(self, event, ...)
     if (event == "ADDON_LOADED" and select(1, ...) == "BearEmotes") then
         for k, v in pairs(origsettings) do
@@ -347,7 +384,8 @@ function BearEmoticons_OnEvent(self, event, ...)
             end
         end
 
-        BearEmotesAnimatorUpdateFrame = CreateFrame("Frame", "BearEmotesAnimator_EventFrame", UIParent)
+        BearEmotesUpdateFrame = CreateFrame("Frame", "BearEmotes_EventFrame", UIParent)
+        BearEmotesUpdateFrame:SetScript('OnUpdate', BearEmotes_Update)
         BearEmoticons_EnableAnimatedEmotes(BearEmoticons_Settings["ENABLE_ANIMATEDEMOTES"])
 
         -- layout is BearEmoteStatistics[emote] = {nrTimesAutoCompleted, nrTimesSent, nrTimesSeen}
@@ -356,6 +394,7 @@ function BearEmoticons_OnEvent(self, event, ...)
         BearEmoticons_UpdateChatFilters();
         BearEmoticons_SetLargeEmotes(BearEmoticons_Settings["LARGEEMOTES"]);
         BearEmoticons_SetClickableEmotes(BearEmoticons_Settings["ENABLE_CLICKABLEEMOTES"]);
+        BearEmoticons_InitChannelSettings();
 		
 		-- TODO: Waiting 1 second is kinda arbitrary, find a nicer solution.
 		-- We don't accept Emote stat updates before ElvUI has posted it's chat history
@@ -377,9 +416,72 @@ function BearEmoticons_OnEvent(self, event, ...)
         end
 
         BearEmoticons_SetMinimapButton(BearEmoticons_Settings["MINIMAPBUTTON"])
-        
+
         AllBearEmoteNames = {};
         BearEmoticons_SetAutoComplete(BearEmoticons_Settings["ENABLE_AUTOCOMPLETE"])
+    elseif (event == "ADDON_LOADED" and select(1, ...) == "WIM" and BearEmoticons_Settings["ENABLE_AUTOCOMPLETE"]) then
+        local module = WIM.CreateModule("BearEmotes", true);
+        function module:OnWindowCreated(win)
+            local editbox = win.widgets.msg_box
+            editbox:SetScript("OnKeyDown", editbox:GetScript("OnKeyDown") or function() end)
+
+            local suggestionList = AllBearEmoteNames;
+            local maxButtonCount = 20;
+            local autocompletesettings = {
+                perWord = true,
+                activationChar = ':',
+                closingChar = ':',
+                minChars = 2,
+                fuzzyMatch = true,
+                onSuggestionApplied = function(suggestion)
+                    BearUpdateEmoteStats(suggestion, true, false, false);
+                end,
+                renderSuggestionFN = BearEmoticons_RenderSuggestionFN,
+                suggestionBiasFN = function(suggestion, text)
+                    if BearEmoteStatistics[suggestion] ~= nil then
+                        return BearEmoteStatistics[suggestion][1] * 5
+                    end
+                    return 0;
+                end,
+                interceptOnEnterPressed = true,
+                addSpace = true,
+                useTabToConfirm = BearEmoticons_Settings["AUTOCOMPLETE_CONFIRM_WITH_TAB"],
+                useArrowButtons = true,
+            }
+
+            SetupAutoComplete(editbox, suggestionList, maxButtonCount, autocompletesettings);
+        end
+    end
+end
+
+function BearEmoticons_InitChannelSettings()
+    local channels = {
+        "CHAT_MSG_GUILD",
+        "CHAT_MSG_PARTY",
+        "CHAT_MSG_PARTY_LEADER",
+        "CHAT_MSG_PARTY_GUIDE",
+        "CHAT_MSG_RAID",
+        "CHAT_MSG_RAID_LEADER",
+        "CHAT_MSG_RAID_WARNING",
+        "CHAT_MSG_SAY",
+        "CHAT_MSG_YELL",
+        "CHAT_MSG_WHISPER",
+        "CHAT_MSG_WHISPER_INFORM",
+        "CHAT_MSG_CHANNEL",
+        "CHAT_MSG_BN_WHISPER",
+        "CHAT_MSG_BN_WHISPER_INFORM",
+        "CHAT_MSG_BN_CONVERSATION",
+        "CHAT_MSG_INSTANCE_CHAT",
+        "CHAT_MSG_INSTANCE_CHAT_LEADER",
+        "MAIL"
+    }
+
+    for i = 1, #channels do
+        local channel = channels[i];
+        local frame = getglobal("BearEmoticonsOptionsControlsPanel" .. channel);
+        if frame ~= nil then
+            frame:SetChecked(BearEmoticons_Settings[channel]);
+        end
     end
 end
 
@@ -404,9 +506,13 @@ function BearEmoticons_RenderSuggestionFN(text)
 end
 
 local function setAllBearFav(value)
-    for n, _ in ipairs(BearEmoticons_Settings["FAVEMOTES"]) do
+    for n, category in ipairs(BearEmotes_dropdown_options) do
         BearEmoticons_Settings["FAVEMOTES"][n] = value;
-        getglobal("favCheckButton_" .. BearEmotes_dropdown_options[n][1] .. "Bear"):SetChecked(value);
+
+        local checkbox = getglobal("favCheckButton_" .. category[1] .. "Bear");
+        if checkbox ~= nil then
+            checkbox:SetChecked(value);
+        end
     end
 end
 
@@ -437,31 +543,71 @@ function BearEmoticons_OptionsWindow_OnShow(self)
 
     getglobal("$autocompleteUseTabToComplete").tooltipText = "This will disable cycling the selected suggestion with tab, the arrow keys will still work.";
 
-    favall = CreateFrame("CheckButton", "favall_GlobalNameBear", BearEmoticonsOptionsControlsPanel, "UIPanelButtonTemplate");
+    if favframe_GlobalNameBear ~= nil then
+        for index, category in ipairs(BearEmotes_dropdown_options) do
+            local checkbox = getglobal("favCheckButton_" .. category[1] .. "Bear");
+            if checkbox ~= nil then
+                checkbox:SetChecked(BearEmoticons_Settings["FAVEMOTES"][index]);
+            end
+        end
+        return
+    end
+
+    local favall = CreateFrame("CheckButton", "favall_GlobalNameBear", BearEmoticonsOptionsControlsPanel, "UIPanelButtonTemplate");
     favall:SetWidth(85);
-    favall:SetScript("OnClick", function(self, arg1)
+    favall:SetScript("OnClick", function()
         setAllBearFav(true);
     end)
-
     favall:SetPoint("TOPLEFT", 17, -350);
     favall:SetText("Check all");
     favall.tooltip = "Check all boxes below.";
 
-    favnone = CreateFrame("CheckButton", "favall_GlobalNameBear", BearEmoticonsOptionsControlsPanel, "UIPanelButtonTemplate");
+    local favnone = CreateFrame("CheckButton", "favnone_GlobalNameBear", BearEmoticonsOptionsControlsPanel, "UIPanelButtonTemplate");
     favnone:SetWidth(85);
-    favnone:SetScript("OnClick", function(self, arg1)
+    favnone:SetScript("OnClick", function()
         setAllBearFav(false);
     end)
-
     favnone:SetPoint("TOPLEFT", 130, -350);
     favnone:SetText("Check none");
     favnone.tooltip = "Uncheck all boxes below.";
 
-    favnone = CreateFrame("CheckButton", "favnone_GlobalNameBear", favall_GlobalName, "UIRadioButtonTemplate");
-
-    favframe = CreateFrame("Frame", "favframe_GlobalNameBear", favall_GlobalName);
+    local favframe = CreateFrame("Frame", "favframe_GlobalNameBear", favall_GlobalNameBear);
     favframe:SetPoint("TOPLEFT", 0, -24);
     favframe:SetSize(590, 175);
+
+    local first = true;
+    local itemcnt = 0;
+    local anchor;
+    for index, category in ipairs(BearEmotes_dropdown_options) do
+        local favCheckButton = CreateFrame(
+            "CheckButton",
+            "favCheckButton_" .. category[1] .. "Bear",
+            favframe_GlobalNameBear,
+            "ChatConfigCheckButtonTemplate"
+        );
+
+        if first then
+            first = false;
+            favCheckButton:SetPoint("TOPLEFT", 0, 0);
+        else
+            favCheckButton:SetParent(getglobal("favCheckButton_" .. anchor .. "Bear"));
+            if ((itemcnt % 10) ~= 0) then
+                favCheckButton:SetPoint("TOPLEFT", 0, -16);
+            else
+                favCheckButton:SetPoint("TOPLEFT", 110, 9 * 16);
+            end
+        end
+
+        itemcnt = itemcnt + 1;
+        anchor = category[1];
+
+        getglobal(favCheckButton:GetName() .. "Text"):SetText(category[1]);
+        favCheckButton:SetChecked(BearEmoticons_Settings["FAVEMOTES"][index]);
+        favCheckButton.tooltip = "Checked boxes will show in the dropdown list.";
+        favCheckButton:SetScript("OnClick", function(button)
+            BearEmoticons_Settings["FAVEMOTES"][index] = button:GetChecked() and true or false;
+        end);
+    end
 end
 
 function BearEmoticons_SetMinimapButton(state)
@@ -481,8 +627,8 @@ end
 
 function BearEmoticons_SetConfirmWithTab(state)
     BearEmoticons_Settings["AUTOCOMPLETE_CONFIRM_WITH_TAB"] = state;
-    for i=1, NUM_CHAT_WINDOWS do
-        local frame = _G["ChatFrame"..i]
+    for _, frameName in pairs(CHAT_FRAMES) do
+        local frame = _G[frameName]
 
         local editbox = frame.editBox;
         if editbox ~= nil and editbox.settings ~= nil then
@@ -501,15 +647,31 @@ end
 
 function BearEmoticons_EnableAnimatedEmotes(state)
     BearEmoticons_Settings["ENABLE_ANIMATEDEMOTES"] = state;
-    if(state) then
-        BearEmotesAnimatorUpdateFrame:SetScript('OnUpdate', BearEmotesAnimator_OnUpdate);
-    else
-        BearEmotesAnimatorUpdateFrame:SetScript('OnUpdate', nil);
+end
+
+function BearEmotes_Update(self, elapsed)
+    local nChatFrames = #CHAT_FRAMES;
+    if nChatFrames ~= BearEmotes_N_CHATFRAMES then
+        BearEmotes_N_CHATFRAMES = nChatFrames
+        BearEmotes_SetupChatFrames();
+    end
+
+    if BearEmoticons_Settings["ENABLE_ANIMATEDEMOTES"] then
+        BearEmotesAnimator_OnUpdate(self, elapsed);
+    end
+end
+
+function BearEmotes_SetupChatFrames()
+    for _, frameName in pairs(CHAT_FRAMES) do
+        local frame = _G[frameName]
+
+        frame:HookScript("OnHyperlinkEnter", BearEmoticons_OnHyperlinkEnter)
+        frame:HookScript("OnHyperlinkLeave", BearEmoticons_OnHyperlinkLeave)
     end
 end
 
 --pass false or nil to leave a value as is, otherwise it gets incremented by one {nrTimesAutoCompleted, nrTimesSent, nrTimesSeen}
-local function BearUpdateEmoteStats(emote, nrTimesAutoCompleted, nrTimesSent, nrTimesSeen)
+function BearUpdateEmoteStats(emote, nrTimesAutoCompleted, nrTimesSent, nrTimesSeen)
     
     if BearEmoteStatistics[emote] == nil then
         BearEmoteStatistics[emote] = {0, 0, 0};
@@ -530,7 +692,7 @@ function BearEmoticons_SetAutoComplete(state)
     if BearEmoticons_Settings["ENABLE_AUTOCOMPLETE"] and not autocompleteInited then
         AllBearEmoteNames = {};
 
-        local i = 0;
+        local i = 1;
         for k, v in pairs(BearEmotes_defaultpack) do
             --Some values in emoticons don't have a corresponding key in BearEmotes_defaultpack
             --we need to filter these out because we don't have an emote to show for these
@@ -553,8 +715,8 @@ function BearEmoticons_SetAutoComplete(state)
         --Sort the list alphabetically
         table.sort(AllBearEmoteNames)
 
-        for i=1, NUM_CHAT_WINDOWS do
-            local frame = _G["ChatFrame"..i]
+        for _, frameName in pairs(CHAT_FRAMES) do
+            local frame = _G[frameName]
 
             local editbox = frame.editBox;
             local suggestionList = AllBearEmoteNames;
@@ -618,4 +780,56 @@ function BearEmoticons_SetType(chattype, state)
 
     BearEmoticons_Settings[chattype] = state;
     BearEmoticons_UpdateChatFilters();
+end
+
+function BearEmoticons_RegisterPack(name, newEmoticons, pack)
+    for k, v in pairs(newEmoticons) do
+        BearEmotes_emoticons[k] = v
+    end
+
+    for k, v in pairs(pack) do
+        BearEmotes_defaultpack[k] = v
+    end
+end
+
+BearEmotes = BearEmotes or {};
+function BearEmotes:AddCategory(name, emotes)
+    local category = {name};
+
+    for _, emote in ipairs(emotes) do
+        table.insert(category, emote);
+    end
+
+    local nextCategoryIndex = (#BearEmotes_dropdown_options + 1);
+    BearEmotes_dropdown_options[nextCategoryIndex] = category;
+    BearEmoticons_Settings["FAVEMOTES"][nextCategoryIndex] = true;
+end
+
+function BearEmotes:AddEmote(id, name, path)
+    BearEmotes_defaultpack[id] = path;
+    BearEmotes_emoticons[name] = id;
+end
+
+BearEmotes_HoverMessageInfo = nil;
+function BearEmoticons_OnHyperlinkEnter(frame, link, message, fontstring, ...)
+    local linkType, linkContent = link:match("^([^:]+):(.+)")
+    if (linkType == "tel") then
+        BearEmotes_HoverMessageInfo = fontstring and fontstring.messageInfo or nil;
+
+        GameTooltip:SetOwner(frame, "ANCHOR_CURSOR");
+        GameTooltip:SetText(linkContent, 255, 210, 0);
+        GameTooltip:Show();
+    end
+end
+
+function BearEmoticons_OnHyperlinkLeave(frame, ...)
+    GameTooltip:Hide()
+    BearEmotes_HoverMessageInfo = nil
+end
+
+local oldsethyperlink = ItemRefTooltip.SetHyperlink
+function ItemRefTooltip:SetHyperlink(link)
+    if (string.sub(link, 1, 3) ~= "tel") then
+        oldsethyperlink(self, link)
+    end
 end

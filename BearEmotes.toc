@@ -1,9 +1,10 @@
-## Interface: 100207
-## Title: |TInterface\Addons\BearEmotes\Emotes\BearGigaChad:0|tBear Emotes|TInterface\Addons\BearEmotes\Emotes\BearLaugh:0|t
+## Interface: 120001
+## Title: |TInterface\Addons\BearEmotes\Emotes\beargun:0|tBear Emotes|TInterface\Addons\BearEmotes\Emotes\bearlaugh:0|t
+## IconTexture: Interface\AddOns\BearEmotes\Emotes\beargun.tga
 ## Author: Mandl
-## Notes: Adds Bear emotes to your chat. Built on top of TwitchEmotes
+## Notes: Adds Bear emotes to your chat. Built on top of TwitchEmotes and updated for newer Midnight-compatible behavior.
 ## Version: v2
-## SavedVariables: BearEmoticons_Settings
+## SavedVariables: BearEmoticons_Settings, BearEmoteStatistics
 ## OptionalDeps: LibStub, LibUIDropDownMenu
 
 Libs\load_libs.xml
